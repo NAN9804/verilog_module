@@ -26,10 +26,10 @@ module async_fifo
     input  wire                 rrst_n,
     input  wire  [7:0]          I_data_in,
     input  wire                 I_wren,
-    output wire  [7:0]          O_data_out,
+    output reg   [7:0]          O_data_out,
     input  wire                 I_rden,
-    output wire                 O_full,
-    output wire                 O_empty
+    output reg                  full,
+    output reg                  empty
 ); 
 
 //----------------variable declaration--------------//
@@ -37,18 +37,20 @@ reg  [ADDRWIDTH:0] wrptr,wrptr_r1,wrptr_r2,rdptr,rdptr_r1,rdptr_r2;
 reg  [ADDRWIDTH:0] wrbin,rdbin;
 wire [ADDRWIDTH:0] wrptr_next,rdptr_next,wrbin_next,rdbin_next;
 wire [ADDRWIDTH-1:0] wraddr,rdaddr;
-reg  full,empty;
 
 //----------------Dual port RAM---------------------//
 localparam DATADEPTH = 1<<ADDRWIDTH;
 reg [DATAWIDTH-1:0] fifo_ram [DATADEPTH-1:0];
 always @(posedge clk_wr) 
 begin
-    if(wrst_n & I_wren) begin
+    if(wrst_n & I_wren & !full) begin
         fifo_ram[wraddr] <= I_data_in;
     end
 end
-assign O_data_out = fifo_ram[rdaddr];
+always@(posedge clk_rd)
+begin
+    O_data_out <= fifo_ram[rdaddr];
+end
 
 //----------------------CDC---------------------------//
 always@(posedge clk_wr or negedge wrst_n)
@@ -83,20 +85,17 @@ begin
         wrbin <= wrbin_next;
     end    
 end
-assign wrbin_next = (!full) ? (wrbin+1) : wrbin;
+assign wrbin_next = (!full & I_wren) ? (wrbin+1) : wrbin;
 assign wrptr_next = (wrbin_next>>1) ^ wrbin_next;
-assign wraddr = wrbin[DATAWIDTH-1:0];
+assign wraddr = wrbin[ADDRWIDTH-1:0];
 always@(posedge clk_wr or negedge wrst_n)
 begin
    if(!wrst_n) begin
        full <= 0;
    end else begin
-       full <= (wrptr_next=={~rdptr_r2[DATAWIDTH:DATAWIDTH-1],rdptr_r2[DATAWIDTH-2:0]});
-//        full <= 0;
+       full <= (wrptr_next=={~rdptr_r2[ADDRWIDTH:ADDRWIDTH-1],rdptr_r2[ADDRWIDTH-2:0]}) ? 1'b1 : 1'b0;
    end
 end
-assign O_full = full;
-
 
 
 always @(posedge clk_rd or negedge rrst_n) 
@@ -109,18 +108,17 @@ begin
         rdbin <= rdbin_next;
     end    
 end
-assign rdbin_next = (!empty) ? (rdbin+1) : rdbin;
+assign rdbin_next = (!empty & I_rden) ? (rdbin+1) : rdbin;
 assign rdptr_next = (rdbin_next>>1) ^ rdbin_next;
-assign rdaddr = rdbin[DATAWIDTH-1:0];
+assign rdaddr = rdbin[ADDRWIDTH-1:0];
 always@(posedge clk_rd or negedge rrst_n)
 begin
    if(!rrst_n) begin
        empty <= 1;
    end else begin
-       empty <= (rdptr_next==wrptr_r2);
+       empty <= (rdptr_next==wrptr_r2) ? 1'b1 : 1'b0;
    end
 end
-assign O_empty = empty;
 
 endmodule
 `default_nettype wire
